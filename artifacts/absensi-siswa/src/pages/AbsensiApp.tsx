@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpenCheck, Calendar, Users, FileBarChart, Settings } from 'lucide-react';
+import { BookOpenCheck, Calendar, Users, FileBarChart, Settings, LogOut } from 'lucide-react';
 import AbsensiHariIni from '@/components/tabs/AbsensiHariIni';
 import DataSiswa from '@/components/tabs/DataSiswa';
 import RekapHarian from '@/components/tabs/RekapHarian';
@@ -11,48 +11,72 @@ type Tab = 'hari-ini' | 'data-siswa' | 'rekap-harian' | 'rekap-laporan';
 export default function AbsensiApp() {
   const [activeTab, setActiveTab] = useState<Tab>('hari-ini');
 
+  const handleLogout = () => {
+    localStorage.removeItem('petugas_auth');
+    window.location.reload();
+  };
+
   return (
     <div className="min-h-[100dvh] flex flex-col bg-[#f0f4f8] font-sans">
       {/* HEADER */}
       <header className="no-print bg-gradient-to-r from-[#0a1628] via-[#0f2d5c] to-[#1565c0] text-white shadow-lg sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center h-auto sm:h-16 py-4 sm:py-0 gap-4 sm:gap-0">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center font-display font-bold text-xl shadow-inner" style={{color:'#f59e0b'}}>
-                A
+            <div className="flex items-center justify-between w-full sm:w-auto">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center font-display font-bold text-xl shadow-inner" style={{color:'#f59e0b'}}>
+                  A
+                </div>
+                <div>
+                  <h1 className="font-display font-bold text-lg leading-tight tracking-wide">AbsensiSiswa</h1>
+                  <p className="text-xs text-blue-200 font-medium tracking-wider uppercase opacity-80">Presensi Digital Sekolah</p>
+                </div>
               </div>
-              <div>
-                <h1 className="font-display font-bold text-lg leading-tight tracking-wide">AbsensiSiswa</h1>
-                <p className="text-xs text-blue-200 font-medium tracking-wider uppercase opacity-80">Presensi Digital Sekolah</p>
-              </div>
+              <button 
+                onClick={handleLogout}
+                className="sm:hidden flex items-center justify-center p-2 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
+                title="Keluar"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
             
-            <nav className="flex space-x-1 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 hide-scrollbar">
-              <TabButton 
-                active={activeTab === 'hari-ini'} 
-                onClick={() => setActiveTab('hari-ini')}
-                icon={<BookOpenCheck className="w-4 h-4" />}
-                label="Hari Ini"
-              />
-              <TabButton 
-                active={activeTab === 'rekap-harian'} 
-                onClick={() => setActiveTab('rekap-harian')}
-                icon={<Calendar className="w-4 h-4" />}
-                label="Rekap Harian"
-              />
-              <TabButton 
-                active={activeTab === 'rekap-laporan'} 
-                onClick={() => setActiveTab('rekap-laporan')}
-                icon={<FileBarChart className="w-4 h-4" />}
-                label="Laporan"
-              />
-              <TabButton 
-                active={activeTab === 'data-siswa'} 
-                onClick={() => setActiveTab('data-siswa')}
-                icon={<Users className="w-4 h-4" />}
-                label="Data Siswa"
-              />
-            </nav>
+            <div className="flex items-center gap-4 w-full sm:w-auto overflow-hidden">
+              <nav className="flex space-x-1 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 hide-scrollbar flex-1">
+                <TabButton 
+                  active={activeTab === 'hari-ini'} 
+                  onClick={() => setActiveTab('hari-ini')}
+                  icon={<BookOpenCheck className="w-4 h-4" />}
+                  label="Hari Ini"
+                />
+                <TabButton 
+                  active={activeTab === 'rekap-harian'} 
+                  onClick={() => setActiveTab('rekap-harian')}
+                  icon={<Calendar className="w-4 h-4" />}
+                  label="Rekap Harian"
+                />
+                <TabButton 
+                  active={activeTab === 'rekap-laporan'} 
+                  onClick={() => setActiveTab('rekap-laporan')}
+                  icon={<FileBarChart className="w-4 h-4" />}
+                  label="Laporan"
+                />
+                <TabButton 
+                  active={activeTab === 'data-siswa'} 
+                  onClick={() => setActiveTab('data-siswa')}
+                  icon={<Users className="w-4 h-4" />}
+                  label="Data Siswa"
+                />
+              </nav>
+              
+              <button 
+                onClick={handleLogout}
+                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors border border-white/10"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-sm font-medium">Keluar</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
