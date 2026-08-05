@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AbsensiSiswa"
+description = "Aplikasi manajemen absensi siswa sekolah berbasis web. Guru dapat mencatat kehadiran siswa harian (Hadir/Sakit/Izin/Alpa), mengelola data siswa dan kelas, melihat rekap bulanan, dan mengekspor laporan. Data disimpan di Supabase."
+version = "1.0.0"
+id = "artifacts/absensi-siswa"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22480
+
+[services.development]
+run = "pnpm --filter @workspace/absensi-siswa run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/absensi-siswa", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/absensi-siswa/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22480"
+BASE_PATH = "/"
