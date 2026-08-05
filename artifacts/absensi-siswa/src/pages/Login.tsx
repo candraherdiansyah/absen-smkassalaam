@@ -1,38 +1,35 @@
 import { useState } from 'react';
-import { Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { loginPetugas } from '@/lib/queries';
+import type { Petugas } from '@/types/database';
 
 interface LoginProps {
-  onSuccess: () => void;
+  onSuccess: (petugas: Petugas) => void;
 }
 
 export default function Login({ onSuccess }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setErrorMsg('');
 
-    // Simulate API delay for better UX
-    setTimeout(() => {
-      setIsLoading(false);
-      if (email === 'aman@gmail.com' && password === '12345678') {
-        toast({
-          title: 'Login Berhasil',
-          description: 'Selamat datang kembali, Petugas.',
-        });
-        onSuccess();
+    try {
+      const user = await loginPetugas(email, password);
+      if (user) {
+        onSuccess(user);
       } else {
-        toast({
-          title: 'Login Gagal',
-          description: 'Email atau password yang Anda masukkan salah.',
-          variant: 'destructive',
-        });
+        setErrorMsg('Email atau password yang Anda masukkan salah.');
       }
-    }, 800);
+    } catch (err) {
+      setErrorMsg('Terjadi kesalahan. Silakan coba lagi.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -63,7 +60,7 @@ export default function Login({ onSuccess }: LoginProps) {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-slate-500 transition-all outline-none"
-                placeholder="aman@gmail.com"
+                placeholder="email@sekolah.com"
               />
             </div>
           </div>
@@ -84,6 +81,13 @@ export default function Login({ onSuccess }: LoginProps) {
               />
             </div>
           </div>
+
+          {errorMsg && (
+            <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <p className="text-sm text-rose-300">{errorMsg}</p>
+            </div>
+          )}
 
           <button
             type="submit"

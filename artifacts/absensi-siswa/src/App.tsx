@@ -4,24 +4,35 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import AbsensiApp from '@/pages/AbsensiApp';
 import Login from '@/pages/Login';
+import type { Petugas } from '@/types/database';
 
 const queryClient = new QueryClient();
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<Petugas | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    const authStatus = localStorage.getItem('petugas_auth');
-    if (authStatus === 'true') {
-      setIsAuthenticated(true);
+    const stored = localStorage.getItem('petugas_session');
+    if (stored) {
+      try {
+        setCurrentUser(JSON.parse(stored) as Petugas);
+      } catch {
+        localStorage.removeItem('petugas_session');
+      }
     }
     setIsChecking(false);
   }, []);
 
-  const handleLoginSuccess = () => {
-    setIsAuthenticated(true);
-    localStorage.setItem('petugas_auth', 'true');
+  const handleLoginSuccess = (petugas: Petugas) => {
+    setCurrentUser(petugas);
+    localStorage.setItem('petugas_session', JSON.stringify(petugas));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('petugas_session');
+    localStorage.removeItem('petugas_auth');
   };
 
   if (isChecking) {
@@ -31,10 +42,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {!isAuthenticated ? (
+        {!currentUser ? (
           <Login onSuccess={handleLoginSuccess} />
         ) : (
-          <AbsensiApp />
+          <AbsensiApp currentUser={currentUser} onLogout={handleLogout} />
         )}
         <Toaster />
       </TooltipProvider>

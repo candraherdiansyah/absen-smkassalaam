@@ -1,20 +1,23 @@
 import { useState } from 'react';
-import { BookOpenCheck, Calendar, Users, FileBarChart, Settings, LogOut } from 'lucide-react';
+import { BookOpenCheck, Calendar, Users, FileBarChart, LogOut, ShieldCheck } from 'lucide-react';
 import AbsensiHariIni from '@/components/tabs/AbsensiHariIni';
 import DataSiswa from '@/components/tabs/DataSiswa';
 import RekapHarian from '@/components/tabs/RekapHarian';
 import RekapLaporan from '@/components/tabs/RekapLaporan';
+import ManajemenPetugas from '@/components/tabs/ManajemenPetugas';
 import { cn } from '@/lib/utils';
+import type { Petugas } from '@/types/database';
 
-type Tab = 'hari-ini' | 'data-siswa' | 'rekap-harian' | 'rekap-laporan';
+type Tab = 'hari-ini' | 'data-siswa' | 'rekap-harian' | 'rekap-laporan' | 'manajemen-petugas';
 
-export default function AbsensiApp() {
+interface AbsensiAppProps {
+  currentUser: Petugas;
+  onLogout: () => void;
+}
+
+export default function AbsensiApp({ currentUser, onLogout }: AbsensiAppProps) {
   const [activeTab, setActiveTab] = useState<Tab>('hari-ini');
-
-  const handleLogout = () => {
-    localStorage.removeItem('petugas_auth');
-    window.location.reload();
-  };
+  const isAdmin = currentUser.role === 'admin';
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-[#f0f4f8] font-sans">
@@ -29,48 +32,66 @@ export default function AbsensiApp() {
                 </div>
                 <div>
                   <h1 className="font-display font-bold text-lg leading-tight tracking-wide">AbsensiSiswa</h1>
-                  <p className="text-xs text-blue-200 font-medium tracking-wider uppercase opacity-80">Presensi Digital Sekolah</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs text-blue-200 font-medium tracking-wider uppercase opacity-80">
+                      {isAdmin ? 'Admin' : 'Petugas'}: {currentUser.nama}
+                    </p>
+                    {isAdmin && (
+                      <span className="text-xs bg-amber-400/20 text-amber-300 border border-amber-400/30 px-1.5 py-0.5 rounded-full font-semibold">
+                        ADMIN
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <button 
-                onClick={handleLogout}
+              <button
+                onClick={onLogout}
                 className="sm:hidden flex items-center justify-center p-2 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
                 title="Keluar"
               >
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
-            
+
             <div className="flex items-center gap-4 w-full sm:w-auto overflow-hidden">
               <nav className="flex space-x-1 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 hide-scrollbar flex-1">
-                <TabButton 
-                  active={activeTab === 'hari-ini'} 
+                <TabButton
+                  active={activeTab === 'hari-ini'}
                   onClick={() => setActiveTab('hari-ini')}
                   icon={<BookOpenCheck className="w-4 h-4" />}
                   label="Hari Ini"
                 />
-                <TabButton 
-                  active={activeTab === 'rekap-harian'} 
+                <TabButton
+                  active={activeTab === 'rekap-harian'}
                   onClick={() => setActiveTab('rekap-harian')}
                   icon={<Calendar className="w-4 h-4" />}
                   label="Rekap Harian"
                 />
-                <TabButton 
-                  active={activeTab === 'rekap-laporan'} 
+                <TabButton
+                  active={activeTab === 'rekap-laporan'}
                   onClick={() => setActiveTab('rekap-laporan')}
                   icon={<FileBarChart className="w-4 h-4" />}
                   label="Laporan"
                 />
-                <TabButton 
-                  active={activeTab === 'data-siswa'} 
+                <TabButton
+                  active={activeTab === 'data-siswa'}
                   onClick={() => setActiveTab('data-siswa')}
                   icon={<Users className="w-4 h-4" />}
                   label="Data Siswa"
                 />
+                {isAdmin && (
+                  <TabButton
+                    active={activeTab === 'manajemen-petugas'}
+                    onClick={() => setActiveTab('manajemen-petugas')}
+                    icon={<ShieldCheck className="w-4 h-4" />}
+                    label="Petugas"
+                    isAdmin
+                  />
+                )}
               </nav>
-              
-              <button 
-                onClick={handleLogout}
+
+              <button
+                onClick={onLogout}
                 className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors border border-white/10"
               >
                 <LogOut className="w-4 h-4" />
@@ -88,20 +109,31 @@ export default function AbsensiApp() {
           {activeTab === 'data-siswa' && <DataSiswa />}
           {activeTab === 'rekap-harian' && <RekapHarian />}
           {activeTab === 'rekap-laporan' && <RekapLaporan />}
+          {activeTab === 'manajemen-petugas' && isAdmin && <ManajemenPetugas currentUser={currentUser} />}
         </div>
       </main>
     </div>
   );
 }
 
-function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function TabButton({
+  active, onClick, icon, label, isAdmin
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  isAdmin?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap",
-        active 
-          ? "bg-white/20 text-white shadow-sm ring-1 ring-white/10" 
+        active
+          ? isAdmin
+            ? "bg-amber-400/20 text-amber-300 shadow-sm ring-1 ring-amber-400/30"
+            : "bg-white/20 text-white shadow-sm ring-1 ring-white/10"
           : "text-indigo-100 hover:bg-white/10 hover:text-white"
       )}
     >

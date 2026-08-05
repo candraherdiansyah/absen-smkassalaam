@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import type { Student, AttendanceRecord, Class, SchoolInfo, WaliKelas, AttendanceStatus } from '@/types/database';
+import type { Student, AttendanceRecord, Class, SchoolInfo, WaliKelas, AttendanceStatus, Petugas } from '@/types/database';
 import { useToast } from '@/hooks/use-toast';
 
 // CLASSES
@@ -325,4 +325,63 @@ export const useUpsertWaliKelas = () => {
       queryClient.invalidateQueries({ queryKey: ['wali_kelas'] });
     }
   });
+};
+
+// PETUGAS
+export const usePetugas = () => useQuery({
+  queryKey: ['petugas'],
+  queryFn: async () => {
+    const { data, error } = await supabase.from('petugas').select('*').order('created_at');
+    if (error) throw error;
+    return data as Petugas[];
+  }
+});
+
+export const useCreatePetugas = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: async (petugas: { nama: string; email: string; password: string; role: 'admin' | 'petugas' }) => {
+      const { data, error } = await supabase.from('petugas').insert(petugas).select().single();
+      if (error) throw error;
+      return data as Petugas;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['petugas'] });
+      toast({ title: 'Petugas berhasil ditambahkan' });
+    },
+    onError: (error: any) => {
+      if (error?.code === '23505') {
+        toast({ title: 'Email sudah terdaftar', variant: 'destructive' });
+      } else {
+        toast({ title: 'Gagal menambahkan petugas', variant: 'destructive' });
+      }
+    }
+  });
+};
+
+export const useDeletePetugas = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('petugas').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['petugas'] });
+      toast({ title: 'Petugas dihapus' });
+    }
+  });
+};
+
+export const loginPetugas = async (email: string, password: string): Promise<Petugas | null> => {
+  const { data, error } = await supabase
+    .from('petugas')
+    .select('*')
+    .eq('email', email)
+    .eq('password', password)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Petugas | null;
 };

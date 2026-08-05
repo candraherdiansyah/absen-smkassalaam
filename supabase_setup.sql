@@ -88,3 +88,21 @@ ON CONFLICT (nis) DO NOTHING;
 INSERT INTO school_info (nama_sekolah, kota, kepala_sekolah, nip_kepala, wakil_kesiswaan, nip_wakil)
 VALUES ('', '', '', '', '', '')
 ON CONFLICT DO NOTHING;
+
+-- 6. Petugas table (admin & officer accounts)
+CREATE TABLE IF NOT EXISTS petugas (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  nama text NOT NULL,
+  email text NOT NULL UNIQUE,
+  password text NOT NULL,
+  role text NOT NULL DEFAULT 'petugas' CHECK (role IN ('admin', 'petugas')),
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE petugas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_all" ON petugas FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- Initial admin account
+INSERT INTO petugas (nama, email, password, role) VALUES
+  ('Aman', 'aman@gmail.com', '12345678', 'admin')
+ON CONFLICT (email) DO NOTHING;

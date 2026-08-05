@@ -1,5 +1,6 @@
 export type AttendanceStatus = 'Hadir' | 'Sakit' | 'Izin' | 'Alpa';
 export type Gender = 'L' | 'P';
+export type UserRole = 'admin' | 'petugas';
 
 export interface Database {
   public: {
@@ -29,6 +30,11 @@ export interface Database {
         Insert: { id?: string; kelas: string; nama?: string; nip?: string; updated_at?: string };
         Update: { id?: string; kelas?: string; nama?: string; nip?: string; updated_at?: string };
       };
+      petugas: {
+        Row: { id: string; nama: string; email: string; password: string; role: UserRole; created_at: string };
+        Insert: { id?: string; nama: string; email: string; password: string; role?: UserRole; created_at?: string };
+        Update: { id?: string; nama?: string; email?: string; password?: string; role?: UserRole; created_at?: string };
+      };
     };
   };
 }
@@ -38,3 +44,4 @@ export type Student = Database['public']['Tables']['students']['Row'];
 export type AttendanceRecord = Database['public']['Tables']['attendance_records']['Row'];
 export type SchoolInfo = Database['public']['Tables']['school_info']['Row'];
 export type WaliKelas = Database['public']['Tables']['wali_kelas']['Row'];
+export type Petugas = Database['public']['Tables']['petugas']['Row'];
