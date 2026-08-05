@@ -3,7 +3,8 @@ import { Download, Printer } from 'lucide-react';
 import { useClasses, useStudents, useAttendanceRange, useSchoolInfo, useWaliKelas } from '@/lib/queries';
 import { cn, getMonthDates } from '@/lib/utils';
 import type { AttendanceStatus } from '@/types/database';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 const MONTHS = [
@@ -90,29 +91,78 @@ export default function RekapLaporan() {
     });
   }, [activeClass, students, attendance, datesInMonth]);
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Rekap Absensi');
+
     const headers = [
       'No', 'NIS', 'Nama Siswa', 
-      ...datesInMonth.map(d => d.split('-')[2]), // Just the day number
+      ...datesInMonth.map(d => parseInt(d.split('-')[2], 10).toString()), // Just the day number
       'H', 'S', 'I', 'A', '% Hadir'
     ];
     
-    const rows = reportData.map((item, idx) => [
-      idx + 1,
-      item.nis,
-      item.nama,
-      ...item.dailyStatus,
-      item.summary.h,
-      item.summary.s,
-      item.summary.i,
-      item.summary.a,
-      `${item.summary.percentHadir}%`
-    ]);
+    worksheet.addRow(headers);
 
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Rekap Absensi");
-    XLSX.writeFile(workbook, `Rekap_Bulanan_${activeClass}_${MONTHS[selectedMonth]}_${selectedYear}.xlsx`);
+    // Style headers
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    // Add data rows
+    reportData.forEach((item, idx) => {
+      const rowData = [
+        idx + 1,
+        item.nis,
+        item.nama,
+        ...item.dailyStatus,
+        item.summary.h > 0 ? item.summary.h : '',
+        item.summary.s > 0 ? item.summary.s : '',
+        item.summary.i > 0 ? item.summary.i : '',
+        item.summary.a > 0 ? item.summary.a : '',
+        `${item.summary.percentHadir}%`
+      ];
+      
+      const row = worksheet.addRow(rowData);
+      
+      // Style cells
+      row.eachCell((cell, colNumber) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        
+        if (colNumber === 2 || colNumber === 3) {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+
+        // Apply colors to daily status columns
+        if (colNumber > 3 && colNumber <= 3 + datesInMonth.length) {
+          const val = cell.value as string;
+          if (val === 'H') {
+            cell.font = { color: { argb: 'FF16A34A' }, bold: true }; // Emerald 600
+          } else if (val === 'S' || val === 'I') {
+            cell.font = { color: { argb: 'FFD97706' }, bold: true }; // Amber 600
+          } else if (val === 'A') {
+            cell.font = { color: { argb: 'FFDC2626' }, bold: true }; // Rose 600
+          }
+        }
+      });
+    });
+
+    // Set column widths
+    worksheet.getColumn(1).width = 5;
+    worksheet.getColumn(2).width = 15;
+    worksheet.getColumn(3).width = 25;
+    for (let i = 4; i <= 3 + datesInMonth.length; i++) {
+      worksheet.getColumn(i).width = 5;
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `Rekap_Bulanan_${activeClass}_${MONTHS[selectedMonth]}_${selectedYear}.xlsx`);
   };
 
   const handleExportPDF = () => {
@@ -165,7 +215,22 @@ export default function RekapLaporan() {
       },
       headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], lineColor: [203, 213, 225], lineWidth: 0.1 },
       alternateRowStyles: { fillColor: [250, 250, 250] },
-      margin: { bottom: 20 }
+      margin: { bottom: 20 },
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index >= 3 && data.column.index < 3 + datesInMonth.length) {
+          const val = data.cell.raw;
+          if (val === 'H') {
+            data.cell.styles.textColor = [22, 163, 74];
+            data.cell.styles.fontStyle = 'bold';
+          } else if (val === 'S' || val === 'I') {
+            data.cell.styles.textColor = [217, 119, 6];
+            data.cell.styles.fontStyle = 'bold';
+          } else if (val === 'A') {
+            data.cell.styles.textColor = [220, 38, 38];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        }
+      }
     });
 
     let finalY = (doc as any).lastAutoTable.finalY + 15;
