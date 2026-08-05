@@ -91,6 +91,9 @@ export default function RekapLaporan() {
     });
   }, [activeClass, students, attendance, datesInMonth]);
 
+  const today = new Date();
+  const printDateStr = `${today.getDate()} ${MONTHS[today.getMonth()]} ${today.getFullYear()}`;
+
   const handleExportExcel = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Rekap Absensi');
@@ -160,6 +163,46 @@ export default function RekapLaporan() {
       worksheet.getColumn(i).width = 5;
     }
 
+    // Add Signature Section
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+    
+    const dateRowIndex = worksheet.rowCount + 1;
+    const rightColIndex = datesInMonth.length + 3; // Align with the end of dates
+    const centerColIndex = Math.floor(datesInMonth.length / 2) + 3; // Align to the middle
+
+    worksheet.getCell(dateRowIndex, rightColIndex).value = `${schoolInfo?.kota || 'Kab. Bandung'}, ${printDateStr}`;
+    worksheet.getCell(dateRowIndex, rightColIndex).alignment = { horizontal: 'center' };
+    
+    const titleRowIndex = worksheet.rowCount + 2;
+    worksheet.getCell(titleRowIndex, 3).value = 'Kepala Sekolah';
+    worksheet.getCell(titleRowIndex, 3).alignment = { horizontal: 'center' };
+    worksheet.getCell(titleRowIndex, centerColIndex).value = 'Wakasek Kesiswaan';
+    worksheet.getCell(titleRowIndex, centerColIndex).alignment = { horizontal: 'center' };
+    worksheet.getCell(titleRowIndex, rightColIndex).value = `Wali Kelas ${activeClass}`;
+    worksheet.getCell(titleRowIndex, rightColIndex).alignment = { horizontal: 'center' };
+
+    const nameRowIndex = titleRowIndex + 4; // space for signature
+    worksheet.getCell(nameRowIndex, 3).value = schoolInfo?.kepala_sekolah || 'H.M. Luthfi Almanfaluthi, S.T.,M.Pd.';
+    worksheet.getCell(nameRowIndex, 3).font = { bold: true };
+    worksheet.getCell(nameRowIndex, 3).alignment = { horizontal: 'center' };
+    
+    worksheet.getCell(nameRowIndex, centerColIndex).value = schoolInfo?.wakil_kesiswaan || 'Asep Lukman, S.Pd.,Gr';
+    worksheet.getCell(nameRowIndex, centerColIndex).font = { bold: true };
+    worksheet.getCell(nameRowIndex, centerColIndex).alignment = { horizontal: 'center' };
+
+    worksheet.getCell(nameRowIndex, rightColIndex).value = activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.';
+    worksheet.getCell(nameRowIndex, rightColIndex).font = { bold: true };
+    worksheet.getCell(nameRowIndex, rightColIndex).alignment = { horizontal: 'center' };
+
+    const nipRowIndex = nameRowIndex + 1;
+    worksheet.getCell(nipRowIndex, 3).value = `NIP. ${schoolInfo?.nip_kepala || '..........................'}`;
+    worksheet.getCell(nipRowIndex, 3).alignment = { horizontal: 'center' };
+    worksheet.getCell(nipRowIndex, centerColIndex).value = `NIP. ${schoolInfo?.nip_wakil || '..........................'}`;
+    worksheet.getCell(nipRowIndex, centerColIndex).alignment = { horizontal: 'center' };
+    worksheet.getCell(nipRowIndex, rightColIndex).value = `NIP. ${activeWali?.nip || '..........................'}`;
+    worksheet.getCell(nipRowIndex, rightColIndex).alignment = { horizontal: 'center' };
+
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, `Rekap_Bulanan_${activeClass}_${MONTHS[selectedMonth]}_${selectedYear}.xlsx`);
@@ -183,7 +226,7 @@ export default function RekapLaporan() {
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    const infoText = `Kelas: ${activeClass}   |   Bulan: ${MONTHS[selectedMonth]} ${selectedYear}   |   Wali Kelas: ${activeWali?.nama || '.....................'}`;
+    const infoText = `Kelas: ${activeClass}   |   Bulan: ${MONTHS[selectedMonth]} ${selectedYear}   |   Wali Kelas: ${activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.'}`;
     doc.text(infoText, doc.internal.pageSize.getWidth() / 2, 29, { align: 'center' });
 
     const headers = [
@@ -244,7 +287,7 @@ export default function RekapLaporan() {
     }
     
     doc.setFontSize(10);
-    doc.text(`${schoolInfo?.kota || '..................'}, ${printDateStr}`, pageWidth - 20, finalY, { align: 'right' });
+    doc.text(`${schoolInfo?.kota || 'Kab. Bandung'}, ${printDateStr}`, pageWidth - 20, finalY, { align: 'right' });
     
     const col1 = pageWidth * 0.15;
     const col2 = pageWidth * 0.5;
@@ -252,27 +295,24 @@ export default function RekapLaporan() {
 
     doc.text('Kepala Sekolah', col1, finalY + 10, { align: 'center' });
     doc.setFont('helvetica', 'bold');
-    doc.text(schoolInfo?.kepala_sekolah || '(....................................)', col1, finalY + 30, { align: 'center' });
+    doc.text(schoolInfo?.kepala_sekolah || 'H.M. Luthfi Almanfaluthi, S.T.,M.Pd.', col1, finalY + 30, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.text(`NIP. ${schoolInfo?.nip_kepala || '..........................'}`, col1, finalY + 35, { align: 'center' });
 
     doc.text('Wakasek Kesiswaan', col2, finalY + 10, { align: 'center' });
     doc.setFont('helvetica', 'bold');
-    doc.text(schoolInfo?.wakil_kesiswaan || '(....................................)', col2, finalY + 30, { align: 'center' });
+    doc.text(schoolInfo?.wakil_kesiswaan || 'Asep Lukman, S.Pd.,Gr', col2, finalY + 30, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.text(`NIP. ${schoolInfo?.nip_wakil || '..........................'}`, col2, finalY + 35, { align: 'center' });
 
     doc.text(`Wali Kelas ${activeClass}`, col3, finalY + 10, { align: 'center' });
     doc.setFont('helvetica', 'bold');
-    doc.text(activeWali?.nama || '(....................................)', col3, finalY + 30, { align: 'center' });
+    doc.text(activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.', col3, finalY + 30, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.text(`NIP. ${activeWali?.nip || '..........................'}`, col3, finalY + 35, { align: 'center' });
 
     doc.save(`Rekap_Bulanan_${activeClass}_${MONTHS[selectedMonth]}_${selectedYear}.pdf`);
   };
-
-  const today = new Date();
-  const printDateStr = `${today.getDate()} ${MONTHS[today.getMonth()]} ${today.getFullYear()}`;
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
@@ -407,22 +447,22 @@ export default function RekapLaporan() {
             {/* LEMBAR PENGESAHAN */}
             <div className="mt-16 print-break-inside-avoid">
               <div className="flex justify-end mb-4">
-                <p className="text-sm">{schoolInfo?.kota || '..................'}, {printDateStr}</p>
+                <p className="text-sm">{schoolInfo?.kota || 'Kab. Bandung'}, {printDateStr}</p>
               </div>
               <div className="grid grid-cols-3 gap-8 text-sm text-center">
                 <div>
                   <p className="mb-16">Kepala Sekolah</p>
-                  <p className="font-bold underline">{schoolInfo?.kepala_sekolah || '(....................................)'}</p>
+                  <p className="font-bold underline">{schoolInfo?.kepala_sekolah || 'H.M. Luthfi Almanfaluthi, S.T.,M.Pd.'}</p>
                   <p>NIP. {schoolInfo?.nip_kepala || '..........................'}</p>
                 </div>
                 <div>
                   <p className="mb-16">Wakasek Kesiswaan</p>
-                  <p className="font-bold underline">{schoolInfo?.wakil_kesiswaan || '(....................................)'}</p>
+                  <p className="font-bold underline">{schoolInfo?.wakil_kesiswaan || 'Asep Lukman, S.Pd.,Gr'}</p>
                   <p>NIP. {schoolInfo?.nip_wakil || '..........................'}</p>
                 </div>
                 <div>
                   <p className="mb-16">Wali Kelas {activeClass}</p>
-                  <p className="font-bold underline">{activeWali?.nama || '(....................................)'}</p>
+                  <p className="font-bold underline">{activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.'}</p>
                   <p>NIP. {activeWali?.nip || '..........................'}</p>
                 </div>
               </div>
