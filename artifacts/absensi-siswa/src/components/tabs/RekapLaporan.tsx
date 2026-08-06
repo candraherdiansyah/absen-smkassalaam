@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Download, Printer } from 'lucide-react';
 import { useClasses, useStudents, useAttendanceRange, useSchoolInfo, useWaliKelas } from '@/lib/queries';
-import { cn, getMonthDates } from '@/lib/utils';
+import { cn, getMonthDates, formatShortDate } from '@/lib/utils';
 import type { AttendanceStatus } from '@/types/database';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -13,9 +13,13 @@ const MONTHS = [
 ];
 
 export default function RekapLaporan() {
+  const [reportMode, setReportMode] = useState<'bulan' | 'rentang'>('bulan');
   const [selectedClass, setSelectedClass] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  
+  const [startDateInput, setStartDateInput] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [endDateInput, setEndDateInput] = useState<string>(new Date().toISOString().split('T')[0]);
 
   const { data: classes = [] } = useClasses();
   const { data: students = [] } = useStudents();
@@ -27,8 +31,22 @@ export default function RekapLaporan() {
   const activeWali = waliKelas.find(w => w.kelas === activeClass);
 
   const datesInMonth = useMemo(() => getMonthDates(selectedYear, selectedMonth), [selectedYear, selectedMonth]);
-  const startDate = datesInMonth[0];
-  const endDate = datesInMonth[datesInMonth.length - 1];
+  const startDate = reportMode === 'bulan' ? datesInMonth[0] : startDateInput;
+  const endDate = reportMode === 'bulan' ? datesInMonth[datesInMonth.length - 1] : endDateInput;
+
+  const monthsInRange = useMemo(() => {
+    if (reportMode === 'bulan') return [{ year: selectedYear, month: selectedMonth, label: `${MONTHS[selectedMonth]} ${selectedYear}` }];
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const months = [];
+    let current = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (current <= end) {
+      months.push({ year: current.getFullYear(), month: current.getMonth(), label: `${MONTHS[current.getMonth()]} ${current.getFullYear()}` });
+      current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+    }
+    return months;
+  }, [reportMode, selectedMonth, selectedYear, startDate, endDate]);
 
   const classStudents = useMemo(() => students.filter(s => s.kelas === activeClass), [students, activeClass]);
   const studentIds = useMemo(() => classStudents.map(s => s.id), [classStudents]);
@@ -91,7 +109,70 @@ export default function RekapLaporan() {
         summary: { h, s: sakit, i, a, percentHadir }
       };
     });
-  }, [activeClass, students, attendance, datesInMonth]);
+  }, [activeClass, classStudents, attendance, datesInMonth, reportMode]);
+
+  const reportDataRentang = useMemo(() => {
+    if (reportMode !== 'rentang' || !activeClass) return [];
+
+    const attMap = new Map<string, Map<string, AttendanceStatus>>();
+    const activeDates = new Set<string>();
+
+    attendance.forEach(r => {
+      if (classStudents.some(s => s.id === r.student_id)) {
+        if (!attMap.has(r.student_id)) {
+          attMap.set(r.student_id, new Map());
+        }
+        attMap.get(r.student_id)!.set(r.date, r.status);
+        activeDates.add(r.date);
+      }
+    });
+
+    return classStudents.map(s => {
+      const studentRecords = attMap.get(s.id) || new Map();
+      let totalH = 0, totalS = 0, totalI = 0, totalA = 0;
+      
+      const monthlySummary = monthsInRange.map(mInfo => {
+        let h = 0, sakit = 0, i = 0, a = 0;
+        const prefix = `${mInfo.year}-${String(mInfo.month + 1).padStart(2, '0')}`;
+        const activeDatesInMonth = Array.from(activeDates).filter(d => d.startsWith(prefix));
+        
+        activeDatesInMonth.forEach(date => {
+          const d = new Date(date);
+          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+          const record = studentRecords.get(date);
+          let finalStatus = '-';
+          if (record) {
+            finalStatus = record.charAt(0);
+          } else if (!isWeekend) {
+            finalStatus = 'H';
+          }
+
+          if (finalStatus === 'H') h++;
+          else if (finalStatus === 'S') sakit++;
+          else if (finalStatus === 'I') i++;
+          else if (finalStatus === 'A') a++;
+        });
+
+        totalH += h;
+        totalS += sakit;
+        totalI += i;
+        totalA += a;
+
+        const totalActive = activeDatesInMonth.length;
+        const percent = totalActive > 0 ? Math.round((h / totalActive) * 100) : 0;
+        return { label: mInfo.label, h, s: sakit, i, a, percent };
+      });
+
+      const grandTotalActive = totalH + totalS + totalI + totalA;
+      const totalPercent = grandTotalActive > 0 ? Math.round((totalH / grandTotalActive) * 100) : 0;
+
+      return {
+        ...s,
+        monthlySummary,
+        summary: { h: totalH, s: totalS, i: totalI, a: totalA, percentHadir: totalPercent }
+      };
+    });
+  }, [activeClass, classStudents, attendance, monthsInRange, reportMode]);
 
   const today = new Date();
   const printDateStr = `${today.getDate()} ${MONTHS[today.getMonth()]} ${today.getFullYear()}`;
@@ -335,11 +416,214 @@ export default function RekapLaporan() {
     doc.save(`Rekap_Bulanan_${activeClass}_${MONTHS[selectedMonth]}_${selectedYear}.pdf`);
   };
 
+  const handleExportExcelRentang = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Rekap Rentang');
+
+    worksheet.addRow(['BUKU KEHADIRAN SISWA (RENTANG WAKTU)']);
+    worksheet.addRow([schoolInfo?.nama_sekolah || 'Nama Sekolah']);
+    worksheet.addRow([`Kelas: ${activeClass}   |   Periode: ${formatShortDate(startDate)} s/d ${formatShortDate(endDate)}   |   Wali Kelas: ${activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.'}`]);
+    worksheet.addRow([]);
+
+    worksheet.mergeCells('A1:I1');
+    worksheet.mergeCells('A2:I2');
+    worksheet.mergeCells('A3:I3');
+    worksheet.getCell('A1').font = { bold: true, size: 14 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+    worksheet.getCell('A2').font = { bold: true, size: 12 };
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+    worksheet.getCell('A3').alignment = { horizontal: 'center' };
+
+    const headers = ['NO', 'NIS', 'NAMA SISWA', 'BULAN', 'H', 'S', 'I', 'A', '%'];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    let currentRow = 6;
+    reportDataRentang.forEach((item, idx) => {
+      const startRow = currentRow;
+      
+      item.monthlySummary.forEach(m => {
+        const row = worksheet.addRow([
+          idx + 1, item.nis, item.nama, m.label,
+          m.h > 0 ? m.h : '-', m.s > 0 ? m.s : '-', m.i > 0 ? m.i : '-', m.a > 0 ? m.a : '-', `${m.percent}%`
+        ]);
+        row.eachCell((cell, colNumber) => {
+          cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+          if (colNumber === 2 || colNumber === 3 || colNumber === 4) cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          else cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+        currentRow++;
+      });
+
+      const totalRow = worksheet.addRow([
+        '', '', 'TOTAL', '',
+        item.summary.h > 0 ? item.summary.h : '-', item.summary.s > 0 ? item.summary.s : '-', item.summary.i > 0 ? item.summary.i : '-', item.summary.a > 0 ? item.summary.a : '-', `${item.summary.percentHadir}%`
+      ]);
+      totalRow.eachCell((cell, colNumber) => {
+        cell.font = { bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        if (colNumber === 3) cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        else cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+      currentRow++;
+
+      if (item.monthlySummary.length > 0) {
+        worksheet.mergeCells(`A${startRow}:A${currentRow - 2}`);
+        worksheet.mergeCells(`B${startRow}:B${currentRow - 2}`);
+        worksheet.mergeCells(`C${startRow}:C${currentRow - 2}`);
+        worksheet.mergeCells(`A${currentRow - 1}:B${currentRow - 1}`); 
+        worksheet.mergeCells(`C${currentRow - 1}:D${currentRow - 1}`); 
+      }
+    });
+
+    worksheet.getColumn(1).width = 5;
+    worksheet.getColumn(2).width = 15;
+    worksheet.getColumn(3).width = 30;
+    worksheet.getColumn(4).width = 20;
+    for (let i = 5; i <= 9; i++) worksheet.getColumn(i).width = 8;
+
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+    
+    const dateRowIndex = worksheet.rowCount + 1;
+    worksheet.getCell(dateRowIndex, 9).value = `${schoolInfo?.kota || 'Kab. Bandung'}, ${printDateStr}`;
+    worksheet.getCell(dateRowIndex, 9).alignment = { horizontal: 'center' };
+    
+    const titleRowIndex = worksheet.rowCount + 2;
+    worksheet.getCell(titleRowIndex, 3).value = 'Kepala Sekolah';
+    worksheet.getCell(titleRowIndex, 3).alignment = { horizontal: 'center' };
+    worksheet.getCell(titleRowIndex, 6).value = 'Wakasek Kesiswaan';
+    worksheet.getCell(titleRowIndex, 6).alignment = { horizontal: 'center' };
+    worksheet.getCell(titleRowIndex, 9).value = `Wali Kelas ${activeClass}`;
+    worksheet.getCell(titleRowIndex, 9).alignment = { horizontal: 'center' };
+
+    const nameRowIndex = titleRowIndex + 4;
+    worksheet.getCell(nameRowIndex, 3).value = schoolInfo?.kepala_sekolah || 'H.M. Luthfi Almanfaluthi, S.T.,M.Pd.';
+    worksheet.getCell(nameRowIndex, 3).font = { bold: true };
+    worksheet.getCell(nameRowIndex, 3).alignment = { horizontal: 'center' };
+    
+    worksheet.getCell(nameRowIndex, 6).value = schoolInfo?.wakil_kesiswaan || 'Asep Lukman, S.Pd.,Gr';
+    worksheet.getCell(nameRowIndex, 6).font = { bold: true };
+    worksheet.getCell(nameRowIndex, 6).alignment = { horizontal: 'center' };
+
+    worksheet.getCell(nameRowIndex, 9).value = activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.';
+    worksheet.getCell(nameRowIndex, 9).font = { bold: true };
+    worksheet.getCell(nameRowIndex, 9).alignment = { horizontal: 'center' };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `Rekap_Rentang_${activeClass}.xlsx`);
+  };
+
+  const handleExportPDFRentang = () => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('BUKU KEHADIRAN SISWA (RENTANG WAKTU)', doc.internal.pageSize.getWidth() / 2, 15, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(schoolInfo?.nama_sekolah || 'Nama Sekolah', doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    const infoText = `Kelas: ${activeClass}   |   Periode: ${formatShortDate(startDate)} s/d ${formatShortDate(endDate)}   |   Wali Kelas: ${activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.'}`;
+    doc.text(infoText, doc.internal.pageSize.getWidth() / 2, 29, { align: 'center' });
+
+    const headers = ['NO', 'NIS', 'NAMA SISWA', 'BULAN', 'H', 'S', 'I', 'A', '%'];
+    const rows: any[] = [];
+
+    reportDataRentang.forEach((item, idx) => {
+      item.monthlySummary.forEach((m, mIdx) => {
+        rows.push([
+          mIdx === 0 ? idx + 1 : '',
+          mIdx === 0 ? item.nis : '',
+          mIdx === 0 ? item.nama : '',
+          m.label,
+          m.h > 0 ? m.h : '-', m.s > 0 ? m.s : '-', m.i > 0 ? m.i : '-', m.a > 0 ? m.a : '-', `${m.percent}%`
+        ]);
+      });
+      rows.push([
+        { content: '', colSpan: 2 },
+        { content: 'TOTAL', styles: { halign: 'right', fontStyle: 'bold' } },
+        '',
+        { content: item.summary.h > 0 ? item.summary.h : '-', styles: { fontStyle: 'bold' } },
+        { content: item.summary.s > 0 ? item.summary.s : '-', styles: { fontStyle: 'bold' } },
+        { content: item.summary.i > 0 ? item.summary.i : '-', styles: { fontStyle: 'bold' } },
+        { content: item.summary.a > 0 ? item.summary.a : '-', styles: { fontStyle: 'bold' } },
+        { content: `${item.summary.percentHadir}%`, styles: { fontStyle: 'bold' } }
+      ]);
+    });
+
+    autoTable(doc, {
+      startY: 35,
+      head: [headers],
+      body: rows,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, halign: 'center' },
+      columnStyles: { 2: { halign: 'left', cellWidth: 40 }, 3: { halign: 'left', cellWidth: 30 } },
+      headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], lineColor: [203, 213, 225], lineWidth: 0.1 },
+      margin: { bottom: 20 },
+      didParseCell: function(data) {
+        if (data.row.raw[1]?.content === 'TOTAL' || (data.row.raw as any)[1] === 'TOTAL') {
+          data.cell.styles.fillColor = [248, 250, 252];
+        }
+      }
+    });
+
+    let finalY = (doc as any).lastAutoTable.finalY + 15;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    if (finalY + 45 > pageHeight) { doc.addPage(); finalY = 20; }
+    
+    doc.setFontSize(10);
+    doc.text(`${schoolInfo?.kota || 'Kab. Bandung'}, ${printDateStr}`, pageWidth - 20, finalY, { align: 'right' });
+    
+    const col1 = pageWidth * 0.2;
+    const col2 = pageWidth * 0.5;
+    const col3 = pageWidth * 0.8;
+    
+    doc.text('Kepala Sekolah', col1, finalY + 10, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(schoolInfo?.kepala_sekolah || 'H.M. Luthfi Almanfaluthi, S.T.,M.Pd.', col1, finalY + 30, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`NIP. ${schoolInfo?.nip_kepala || '..........................'}`, col1, finalY + 35, { align: 'center' });
+
+    doc.text('Wakasek Kesiswaan', col2, finalY + 10, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(schoolInfo?.wakil_kesiswaan || 'Asep Lukman, S.Pd.,Gr', col2, finalY + 30, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`NIP. ${schoolInfo?.nip_wakil || '..........................'}`, col2, finalY + 35, { align: 'center' });
+
+    doc.text(`Wali Kelas ${activeClass}`, col3, finalY + 10, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.', col3, finalY + 30, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`NIP. ${activeWali?.nip || '..........................'}`, col3, finalY + 35, { align: 'center' });
+
+    doc.save(`Rekap_Rentang_${activeClass}.pdf`);
+  };
+
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-300">
       {/* TOOLBAR */}
       <div className="p-4 sm:p-6 border-b border-slate-200 bg-white flex flex-col lg:flex-row lg:items-center gap-4 justify-between no-print">
         <div className="flex flex-wrap gap-3">
+          <select 
+            className="py-2 px-3 bg-slate-100 font-medium border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20 text-primary"
+            value={reportMode}
+            onChange={e => setReportMode(e.target.value as 'bulan' | 'rentang')}
+          >
+            <option value="bulan">Laporan Bulanan</option>
+            <option value="rentang">Rentang Waktu (Semester)</option>
+          </select>
+
+          <div className="w-px h-8 bg-slate-200 mx-1 self-center hidden sm:block"></div>
+
           <select 
             className="py-2 px-3 bg-white border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20 min-w-[140px]"
             value={activeClass}
@@ -350,38 +634,59 @@ export default function RekapLaporan() {
               <option key={c.id} value={c.name}>{c.name}</option>
             ))}
           </select>
-          <select 
-            className="py-2 px-3 bg-white border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20"
-            value={selectedMonth}
-            onChange={e => setSelectedMonth(Number(e.target.value))}
-          >
-            {MONTHS.map((m, i) => (
-              <option key={i} value={i}>{m}</option>
-            ))}
-          </select>
-          <select 
-            className="py-2 px-3 bg-white border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20"
-            value={selectedYear}
-            onChange={e => setSelectedYear(Number(e.target.value))}
-          >
-            {[selectedYear - 1, selectedYear, selectedYear + 1].map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+
+          {reportMode === 'bulan' ? (
+            <>
+              <select 
+                className="py-2 px-3 bg-white border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20"
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(Number(e.target.value))}
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={i} value={i}>{m}</option>
+                ))}
+              </select>
+              <select 
+                className="py-2 px-3 bg-white border border-slate-200 rounded-md text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/20"
+                value={selectedYear}
+                onChange={e => setSelectedYear(Number(e.target.value))}
+              >
+                {[selectedYear - 1, selectedYear, selectedYear + 1].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-2 shadow-sm">
+              <input 
+                type="date" 
+                className="py-1.5 px-2 bg-transparent text-sm outline-none"
+                value={startDateInput}
+                onChange={e => setStartDateInput(e.target.value)}
+              />
+              <span className="text-slate-400 text-sm font-medium">s/d</span>
+              <input 
+                type="date" 
+                className="py-1.5 px-2 bg-transparent text-sm outline-none"
+                value={endDateInput}
+                onChange={e => setEndDateInput(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={handleExportExcel}
-            disabled={reportData.length === 0}
+            onClick={reportMode === 'bulan' ? handleExportExcel : handleExportExcelRentang}
+            disabled={reportMode === 'bulan' ? reportData.length === 0 : reportDataRentang.length === 0}
             className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-md shadow-sm hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Export Excel</span>
           </button>
           <button 
-            onClick={handleExportPDF}
-            disabled={reportData.length === 0}
+            onClick={reportMode === 'bulan' ? handleExportPDF : handleExportPDFRentang}
+            disabled={reportMode === 'bulan' ? reportData.length === 0 : reportDataRentang.length === 0}
             className="px-3 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 border border-transparent rounded-md shadow-sm flex items-center gap-2 disabled:opacity-50"
           >
             <Printer className="w-4 h-4" />
@@ -392,11 +697,18 @@ export default function RekapLaporan() {
 
       {/* PRINT HEADER */}
       <div className="print-only mb-4 text-center text-black border-b-2 border-black pb-3">
-        <h2 className="text-base font-bold uppercase tracking-wide mb-0.5">Buku Kehadiran Siswa</h2>
+        <h2 className="text-base font-bold uppercase tracking-wide mb-0.5">
+          {reportMode === 'bulan' ? 'Buku Kehadiran Siswa' : 'Buku Kehadiran Siswa (Rentang Waktu)'}
+        </h2>
         <h3 className="text-sm font-semibold">{schoolInfo?.nama_sekolah || 'Nama Sekolah'}</h3>
         <p className="text-xs mt-1">
           Kelas: <strong>{activeClass}</strong> &nbsp;|&nbsp;
-          Bulan: <strong>{MONTHS[selectedMonth]} {selectedYear}</strong> &nbsp;|&nbsp;
+          {reportMode === 'bulan' ? (
+            <>Bulan: <strong>{MONTHS[selectedMonth]} {selectedYear}</strong></>
+          ) : (
+            <>Periode: <strong>{formatShortDate(startDate)} s/d {formatShortDate(endDate)}</strong></>
+          )}
+          &nbsp;|&nbsp;
           Wali Kelas: <strong>{activeWali?.nama || '.....................'}</strong>
         </p>
       </div>
@@ -407,63 +719,112 @@ export default function RekapLaporan() {
           <div className="space-y-4">
             {[1,2,3].map(i => <div key={i} className="h-12 bg-slate-100 animate-pulse rounded"></div>)}
           </div>
-        ) : reportData.length === 0 ? (
+        ) : (reportMode === 'bulan' ? reportData.length === 0 : reportDataRentang.length === 0) ? (
           <div className="py-20 text-center text-slate-500">
             Pilih kelas yang memiliki data siswa.
           </div>
         ) : (
           <div className="print-landscape">
-            <table className="w-full text-xs text-left print-table border-collapse">
-              <thead className="text-slate-600 uppercase bg-slate-50 border border-slate-200 text-center print:text-black print:border-black">
-                <tr>
-                  <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-8">No</th>
-                  <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-16">NIS</th>
-                  <th rowSpan={2} className="px-4 py-2 border border-slate-200 text-left min-w-[150px]">Nama Siswa</th>
-                  <th colSpan={datesInMonth.length} className="px-2 py-1 border border-slate-200">Tanggal</th>
-                  <th colSpan={4} className="px-2 py-1 border border-slate-200">Jumlah</th>
-                  <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-12">%</th>
-                </tr>
-                <tr>
-                  {datesInMonth.map(d => (
-                    <th key={d} className="px-1 py-1 border border-slate-200 w-6 font-mono font-medium">
-                      {parseInt(d.split('-')[2])}
-                    </th>
-                  ))}
-                  <th className="px-1 py-1 border border-slate-200 text-emerald-600 print:text-black">H</th>
-                  <th className="px-1 py-1 border border-slate-200 text-amber-600 print:text-black">S</th>
-                  <th className="px-1 py-1 border border-slate-200 text-sky-600 print:text-black">I</th>
-                  <th className="px-1 py-1 border border-slate-200 text-rose-600 print:text-black">A</th>
-                </tr>
-              </thead>
-              <tbody className="text-slate-700 print:text-black">
-                {reportData.map((item, idx) => (
-                  <tr key={item.id} className="hover:bg-slate-50/50 print:hover:bg-transparent">
-                    <td className="px-2 py-1.5 border border-slate-200 text-center">{idx + 1}</td>
-                    <td className="px-2 py-1.5 border border-slate-200 font-mono text-center">{item.nis}</td>
-                    <td className="px-4 py-1.5 border border-slate-200 font-medium whitespace-nowrap">{item.nama}</td>
-                    
-                    {item.dailyStatus.map((status, i) => (
-                      <td key={i} className="px-1 py-1.5 border border-slate-200 text-center font-medium">
-                        <span className={cn(
-                          status === 'H' ? "text-emerald-600 print:text-black" :
-                          status === 'S' ? "text-amber-500 print:text-black" :
-                          status === 'I' ? "text-sky-500 print:text-black" :
-                          status === 'A' ? "text-rose-500 print:text-black" : "text-slate-300 print:text-black"
-                        )}>
-                          {status}
-                        </span>
-                      </td>
-                    ))}
-
-                    <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-emerald-700 print:text-black">{item.summary.h > 0 ? item.summary.h : ''}</td>
-                    <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-amber-600 print:text-black">{item.summary.s > 0 ? item.summary.s : ''}</td>
-                    <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-sky-600 print:text-black">{item.summary.i > 0 ? item.summary.i : ''}</td>
-                    <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-rose-600 print:text-black">{item.summary.a > 0 ? item.summary.a : ''}</td>
-                    <td className="px-1 py-1.5 border border-slate-200 text-center font-bold">{item.summary.percentHadir}%</td>
+            {reportMode === 'bulan' ? (
+              <table className="w-full text-xs text-left print-table border-collapse">
+                <thead className="text-slate-600 uppercase bg-slate-50 border border-slate-200 text-center print:text-black print:border-black">
+                  <tr>
+                    <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-8">No</th>
+                    <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-16">NIS</th>
+                    <th rowSpan={2} className="px-4 py-2 border border-slate-200 text-left min-w-[150px]">Nama Siswa</th>
+                    <th colSpan={datesInMonth.length} className="px-2 py-1 border border-slate-200">Tanggal</th>
+                    <th colSpan={4} className="px-2 py-1 border border-slate-200">Jumlah</th>
+                    <th rowSpan={2} className="px-2 py-2 border border-slate-200 w-12">%</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                  <tr>
+                    {datesInMonth.map(d => (
+                      <th key={d} className="px-1 py-1 border border-slate-200 w-6 font-mono font-medium">
+                        {parseInt(d.split('-')[2])}
+                      </th>
+                    ))}
+                    <th className="px-1 py-1 border border-slate-200 text-emerald-600 print:text-black">H</th>
+                    <th className="px-1 py-1 border border-slate-200 text-amber-600 print:text-black">S</th>
+                    <th className="px-1 py-1 border border-slate-200 text-sky-600 print:text-black">I</th>
+                    <th className="px-1 py-1 border border-slate-200 text-rose-600 print:text-black">A</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-700 print:text-black">
+                  {reportData.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50 print:hover:bg-transparent">
+                      <td className="px-2 py-1.5 border border-slate-200 text-center">{idx + 1}</td>
+                      <td className="px-2 py-1.5 border border-slate-200 font-mono text-center">{item.nis}</td>
+                      <td className="px-4 py-1.5 border border-slate-200 font-medium whitespace-nowrap">{item.nama}</td>
+                      
+                      {item.dailyStatus.map((status, i) => (
+                        <td key={i} className="px-1 py-1.5 border border-slate-200 text-center font-medium">
+                          <span className={cn(
+                            status === 'H' ? "text-emerald-600 print:text-black" :
+                            status === 'S' ? "text-amber-500 print:text-black" :
+                            status === 'I' ? "text-sky-500 print:text-black" :
+                            status === 'A' ? "text-rose-500 print:text-black" : "text-slate-300 print:text-black"
+                          )}>
+                            {status}
+                          </span>
+                        </td>
+                      ))}
+
+                      <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-emerald-700 print:text-black">{item.summary.h > 0 ? item.summary.h : ''}</td>
+                      <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-amber-600 print:text-black">{item.summary.s > 0 ? item.summary.s : ''}</td>
+                      <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-sky-600 print:text-black">{item.summary.i > 0 ? item.summary.i : ''}</td>
+                      <td className="px-1 py-1.5 border border-slate-200 text-center font-bold text-rose-600 print:text-black">{item.summary.a > 0 ? item.summary.a : ''}</td>
+                      <td className="px-1 py-1.5 border border-slate-200 text-center font-bold">{item.summary.percentHadir}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-sm text-left print-table border-collapse">
+                <thead className="text-slate-600 uppercase bg-slate-50 border border-slate-200 text-center print:text-black print:border-black">
+                  <tr>
+                    <th className="px-3 py-2 border border-slate-200 w-12">No</th>
+                    <th className="px-3 py-2 border border-slate-200 w-24">NIS</th>
+                    <th className="px-4 py-2 border border-slate-200 text-left min-w-[200px]">Nama Siswa</th>
+                    <th className="px-4 py-2 border border-slate-200 text-left">Bulan</th>
+                    <th className="px-3 py-2 border border-slate-200 w-12 text-emerald-600 print:text-black">H</th>
+                    <th className="px-3 py-2 border border-slate-200 w-12 text-amber-600 print:text-black">S</th>
+                    <th className="px-3 py-2 border border-slate-200 w-12 text-sky-600 print:text-black">I</th>
+                    <th className="px-3 py-2 border border-slate-200 w-12 text-rose-600 print:text-black">A</th>
+                    <th className="px-3 py-2 border border-slate-200 w-16">%</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-700 print:text-black">
+                  {reportDataRentang.map((item, idx) => (
+                    <React.Fragment key={item.id}>
+                      {item.monthlySummary.map((m, mIdx) => (
+                        <tr key={m.label} className="hover:bg-slate-50/50 print:hover:bg-transparent">
+                          {mIdx === 0 && (
+                            <>
+                              <td rowSpan={item.monthlySummary.length + 1} className="px-3 py-2 border border-slate-200 text-center align-top">{idx + 1}</td>
+                              <td rowSpan={item.monthlySummary.length + 1} className="px-3 py-2 border border-slate-200 font-mono text-center align-top">{item.nis}</td>
+                              <td rowSpan={item.monthlySummary.length + 1} className="px-4 py-2 border border-slate-200 font-medium align-top">{item.nama}</td>
+                            </>
+                          )}
+                          <td className="px-4 py-2 border border-slate-200">{m.label}</td>
+                          <td className="px-3 py-2 border border-slate-200 text-center font-medium">{m.h > 0 ? m.h : '-'}</td>
+                          <td className="px-3 py-2 border border-slate-200 text-center font-medium">{m.s > 0 ? m.s : '-'}</td>
+                          <td className="px-3 py-2 border border-slate-200 text-center font-medium">{m.i > 0 ? m.i : '-'}</td>
+                          <td className="px-3 py-2 border border-slate-200 text-center font-medium">{m.a > 0 ? m.a : '-'}</td>
+                          <td className="px-3 py-2 border border-slate-200 text-center font-medium">{m.percent}%</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50/80 font-bold print:bg-transparent">
+                        <td colSpan={1} className="px-4 py-2 border border-slate-200 text-right">TOTAL</td>
+                        <td className="px-3 py-2 border border-slate-200 text-center text-emerald-700 print:text-black">{item.summary.h > 0 ? item.summary.h : '-'}</td>
+                        <td className="px-3 py-2 border border-slate-200 text-center text-amber-700 print:text-black">{item.summary.s > 0 ? item.summary.s : '-'}</td>
+                        <td className="px-3 py-2 border border-slate-200 text-center text-sky-700 print:text-black">{item.summary.i > 0 ? item.summary.i : '-'}</td>
+                        <td className="px-3 py-2 border border-slate-200 text-center text-rose-700 print:text-black">{item.summary.a > 0 ? item.summary.a : '-'}</td>
+                        <td className="px-3 py-2 border border-slate-200 text-center">{item.summary.percentHadir}%</td>
+                      </tr>
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
             {/* LEMBAR PENGESAHAN */}
             <div className="mt-16 print-break-inside-avoid">
