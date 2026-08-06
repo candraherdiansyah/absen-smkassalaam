@@ -1,7 +1,11 @@
 import { useState, useMemo } from 'react';
-import { Download, Printer, CheckCircle } from 'lucide-react';
-import { useClasses, useStudents, useAttendance } from '@/lib/queries';
-import { cn, formatShortDate, formatDate, downloadCSV } from '@/lib/utils';
+import { Download, Printer, CheckCircle, FileText } from 'lucide-react';
+import { useClasses, useStudents, useAttendance, useSchoolInfo } from '@/lib/queries';
+import { cn, formatShortDate, formatDate } from '@/lib/utils';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 type FilterStatus = 'ALL' | 'Sakit' | 'Izin' | 'Alpa';
 
@@ -13,6 +17,7 @@ export default function RekapHarian() {
   const { data: classes = [] } = useClasses();
   const { data: students = [] } = useStudents();
   const { data: attendance = [], isLoading } = useAttendance(selectedDate);
+  const { data: schoolInfo } = useSchoolInfo();
 
   const filteredData = useMemo(() => {
     let result = students;
@@ -60,7 +65,99 @@ export default function RekapHarian() {
     };
   }, [students, attendance, selectedClass]);
 
-  const handleExportCSV = () => {
+  const handleExportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Rekap Harian');
+
+    // Add Title
+    worksheet.addRow(['REKAP KEHADIRAN HARIAN SISWA']);
+    worksheet.addRow([schoolInfo?.nama_sekolah || 'Nama Sekolah']);
+    worksheet.addRow([`Kelas: ${selectedClass === 'ALL' ? 'Semua Kelas' : selectedClass}   |   Tanggal: ${formatDate(selectedDate)}`]);
+    worksheet.addRow([]); // empty row
+
+    // Merge cells for title
+    worksheet.mergeCells('A1:G1');
+    worksheet.mergeCells('A2:G2');
+    worksheet.mergeCells('A3:G3');
+
+    // Style titles
+    worksheet.getCell('A1').font = { bold: true, size: 14 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+    worksheet.getCell('A2').font = { bold: true, size: 12 };
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+    worksheet.getCell('A3').alignment = { horizontal: 'center' };
+
+    const headers = ['No', 'NIS', 'Nama Siswa', 'Kelas', 'L/P', 'Status', 'Keterangan'];
+    const headerRow = worksheet.addRow(headers);
+    
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+
+    filteredData.forEach((item, i) => {
+      const status = item.record?.status || 'Hadir';
+      const row = worksheet.addRow([
+        i + 1,
+        item.nis,
+        item.nama,
+        item.kelas,
+        item.gender,
+        status,
+        item.record?.note || '-'
+      ]);
+      row.eachCell((cell, colNumber) => {
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        if (colNumber === 3) {
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        } else {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+        
+        // Color status
+        if (colNumber === 6) {
+          if (status === 'Sakit' || status === 'Izin') {
+            cell.font = { color: { argb: 'FFD97706' }, bold: true }; // Amber
+          } else if (status === 'Alpa') {
+            cell.font = { color: { argb: 'FFDC2626' }, bold: true }; // Rose
+          }
+        }
+      });
+    });
+
+    worksheet.getColumn(1).width = 5;
+    worksheet.getColumn(2).width = 15;
+    worksheet.getColumn(3).width = 30;
+    worksheet.getColumn(4).width = 15;
+    worksheet.getColumn(5).width = 10;
+    worksheet.getColumn(6).width = 15;
+    worksheet.getColumn(7).width = 25;
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `Rekap_Harian_${selectedDate}_${selectedClass}.xlsx`);
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('REKAP KEHADIRAN HARIAN SISWA', doc.internal.pageSize.getWidth() / 2, 15, { align: 'center' });
+    
+    doc.setFontSize(12);
+    doc.text(schoolInfo?.nama_sekolah || 'Nama Sekolah', doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Kelas: ${selectedClass === 'ALL' ? 'Semua Kelas' : selectedClass}   |   Tanggal: ${formatDate(selectedDate)}`, doc.internal.pageSize.getWidth() / 2, 29, { align: 'center' });
+
     const headers = ['No', 'NIS', 'Nama Siswa', 'Kelas', 'L/P', 'Status', 'Keterangan'];
     const rows = filteredData.map((item, i) => [
       i + 1,
@@ -71,8 +168,32 @@ export default function RekapHarian() {
       item.record?.status || 'Hadir',
       item.record?.note || '-'
     ]);
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    downloadCSV(csvContent, `Rekap_Harian_${selectedDate}_${selectedClass}.csv`);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [headers],
+      body: rows,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, halign: 'center' },
+      columnStyles: {
+        2: { halign: 'left' },
+      },
+      headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105] },
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index === 5) {
+          const val = data.cell.raw;
+          if (val === 'Sakit' || val === 'Izin') {
+            data.cell.styles.textColor = [217, 119, 6];
+            data.cell.styles.fontStyle = 'bold';
+          } else if (val === 'Alpa') {
+            data.cell.styles.textColor = [220, 38, 38];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        }
+      }
+    });
+
+    doc.save(`Rekap_Harian_${selectedDate}_${selectedClass}.pdf`);
   };
 
   const handlePrint = () => {
@@ -114,18 +235,25 @@ export default function RekapHarian() {
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={handleExportCSV}
+            onClick={handleExportExcel}
             className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-md shadow-sm hover:bg-slate-50 flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
-            <span>Export CSV</span>
+            <span className="hidden sm:inline">Export Excel</span>
+          </button>
+          <button 
+            onClick={handleExportPDF}
+            className="px-3 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 border border-transparent rounded-md shadow-sm flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="hidden sm:inline">Export PDF</span>
           </button>
           <button 
             onClick={handlePrint}
-            className="px-3 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 border border-transparent rounded-md shadow-sm flex items-center gap-2"
+            className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-md shadow-sm hover:bg-slate-50 flex items-center gap-2"
           >
             <Printer className="w-4 h-4" />
-            <span>Print</span>
+            <span className="hidden sm:inline">Print</span>
           </button>
         </div>
       </div>
