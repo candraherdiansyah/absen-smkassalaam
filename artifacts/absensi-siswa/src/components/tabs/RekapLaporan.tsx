@@ -100,16 +100,35 @@ export default function RekapLaporan() {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Rekap Absensi');
 
+    // Add Title
+    worksheet.addRow(['BUKU KEHADIRAN SISWA']);
+    worksheet.addRow([schoolInfo?.nama_sekolah || 'Nama Sekolah']);
+    worksheet.addRow([`Kelas: ${activeClass}   |   Bulan: ${MONTHS[selectedMonth]} ${selectedYear}   |   Wali Kelas: ${activeWali?.nama || 'Ute Juli Kurnia, S.T.,Gr.'}`]);
+    worksheet.addRow([]); // empty row
+
+    // Merge cells for title (A to the last column)
+    const lastColIndex = 3 + datesInMonth.length + 5;
+    const lastColLetter = worksheet.getColumn(lastColIndex).letter;
+    worksheet.mergeCells(`A1:${lastColLetter}1`);
+    worksheet.mergeCells(`A2:${lastColLetter}2`);
+    worksheet.mergeCells(`A3:${lastColLetter}3`);
+
+    // Style titles
+    worksheet.getCell('A1').font = { bold: true, size: 14 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+    worksheet.getCell('A2').font = { bold: true, size: 12 };
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+    worksheet.getCell('A3').alignment = { horizontal: 'center' };
+
     const headers = [
       'No', 'NIS', 'Nama Siswa', 
       ...datesInMonth.map(d => parseInt(d.split('-')[2], 10).toString()), // Just the day number
       'H', 'S', 'I', 'A', '% Hadir'
     ];
     
-    worksheet.addRow(headers);
+    const headerRow = worksheet.addRow(headers);
 
     // Style headers
-    const headerRow = worksheet.getRow(1);
     headerRow.eachCell((cell) => {
       cell.font = { bold: true };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
