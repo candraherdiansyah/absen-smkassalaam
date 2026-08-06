@@ -48,9 +48,33 @@ export const useDeleteClass = () => {
 export const useStudents = () => useQuery({
   queryKey: ['students'],
   queryFn: async () => {
-    const { data, error } = await supabase.from('students').select('*').order('kelas').order('nama');
-    if (error) throw error;
-    return data as Student[];
+    let allData: Student[] = [];
+    let hasMore = true;
+    let from = 0;
+    const step = 1000;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('students')
+        .select('*')
+        .order('kelas')
+        .order('nama')
+        .range(from, from + step - 1);
+        
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < step) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
   }
 });
 
@@ -95,24 +119,77 @@ export const useDeleteStudent = () => {
 export const useAttendance = (date: string) => useQuery({
   queryKey: ['attendance', date],
   queryFn: async () => {
-    const { data, error } = await supabase.from('attendance_records').select('*').eq('date', date);
-    if (error) throw error;
-    return data as AttendanceRecord[];
+    let allData: AttendanceRecord[] = [];
+    let hasMore = true;
+    let from = 0;
+    const step = 1000;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('attendance_records')
+        .select('*')
+        .eq('date', date)
+        .range(from, from + step - 1);
+        
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < step) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
   },
-  staleTime: 30_000, // treat data as fresh for 30s — avoids redundant re-fetches
+  staleTime: 30_000,
 });
 
 // For reports/matrix: fetch all attendance in a month or date range
-export const useAttendanceRange = (startDate: string, endDate: string) => useQuery({
-  queryKey: ['attendance', 'range', startDate, endDate],
+export const useAttendanceRange = (startDate: string, endDate: string, studentIds?: string[]) => useQuery({
+  queryKey: ['attendance', 'range', startDate, endDate, studentIds],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select('*')
-      .gte('date', startDate)
-      .lte('date', endDate);
-    if (error) throw error;
-    return data as AttendanceRecord[];
+    if (studentIds && studentIds.length === 0) {
+      return [];
+    }
+
+    let allData: AttendanceRecord[] = [];
+    let hasMore = true;
+    let from = 0;
+    const step = 1000;
+
+    while (hasMore) {
+      let query = supabase
+        .from('attendance_records')
+        .select('*')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .range(from, from + step - 1);
+
+      if (studentIds && studentIds.length > 0) {
+        query = query.in('student_id', studentIds);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        if (data.length < step) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
   },
   staleTime: 60_000,
 });

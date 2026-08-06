@@ -30,12 +30,14 @@ export default function RekapLaporan() {
   const startDate = datesInMonth[0];
   const endDate = datesInMonth[datesInMonth.length - 1];
 
-  const { data: attendance = [], isLoading } = useAttendanceRange(startDate, endDate);
+  const classStudents = useMemo(() => students.filter(s => s.kelas === activeClass), [students, activeClass]);
+  const studentIds = useMemo(() => classStudents.map(s => s.id), [classStudents]);
+
+  const { data: attendance = [], isLoading } = useAttendanceRange(startDate, endDate, studentIds);
 
   const reportData = useMemo(() => {
     if (!activeClass) return [];
 
-    const classStudents = students.filter(s => s.kelas === activeClass);
     
     // Quick lookup map: student_id -> date -> status
     const attMap = new Map<string, Map<string, AttendanceStatus>>();
